@@ -14,7 +14,14 @@
     "db:studio": "prisma studio",
     "db:generate": "prisma generate",
     "db:seed": "tsx src/seed.ts",
-    "test": "echo \"Tests not yet implemented\" && exit 0"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\"",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [
     "chunking",
@@ -33,12 +40,21 @@
     "dotenv": "^16.4.5",
     "fastify": "^4.28.1",
     "openai": "^4.75.0",
+    "pino": "^8.21.0",
+    "pino-pretty": "^11.2.2",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
+    "@vitest/coverage-v8": "^1.6.0",
+    "eslint": "^8.57.1",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.3.3",
     "prisma": "^5.22.0",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^1.6.0"
   }
 }

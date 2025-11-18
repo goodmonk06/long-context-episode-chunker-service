@@ -2,6 +2,8 @@ import { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../lib/db';
 import { segmentSource } from '../services/segmentation';
+import { emitSourceCreated, emitChunksIngested } from '../lib/events';
+import { Metrics } from '../lib/metrics';
 
 const createSourceSchema = z.object({
   name: z.string().min(1),
@@ -34,6 +36,9 @@ export async function sourcesRoutes(server: FastifyInstance) {
         metaJson: body.metaJson || {},
       },
     });
+
+    emitSourceCreated(source.id, source.name, source.type);
+    Metrics.sourceCreated();
 
     return reply.status(201).send(source);
   });

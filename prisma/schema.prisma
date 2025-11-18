@@ -10,19 +10,42 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ============================================================================
+// CORE DOMAIN MODELS
+// ============================================================================
+
 model SourceStream {
-  id        String   @id @default(cuid())
-  name      String
-  type      StreamType
-  metaJson  Json?
+  id          String       @id @default(cuid())
+  name        String
+  type        StreamType
+  status      SourceStatus @default(DRAFT)
+  description String?      @db.Text
+  metaJson    Json?
+
+  // Processing metadata
+  processingMetadata Json?
+  totalChunks        Int    @default(0)
+  totalEpisodes      Int    @default(0)
+
+  // Timestamps
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  chunks    RawChunk[]
-  episodes  Episode[]
+  // Relationships
+  chunks           RawChunk[]
+  episodes         Episode[]
+  segmentationJobs SegmentationJob[]
+  tags             SourceTag[]
+
+  // Derived sources (e.g., summarized version, translated version)
+  derivedFrom   SourceStream?  @relation("DerivedSources", fields: [derivedFromId], references: [id])
+  derivedFromId String?
+  derivedSources SourceStream[] @relation("DerivedSources")
 
   @@index([type])
+  @@index([status])
   @@index([createdAt])
+  @@index([derivedFromId])
 }
 
 enum StreamType {
@@ -30,7 +53,19 @@ enum StreamType {
   MEETING
   LOG
   TRANSCRIPT
+  INTERVIEW
+  ARTICLE
+  BOOK
   OTHER
+}
+
+enum SourceStatus {
+  DRAFT
+  READY
+  PROCESSING
+  COMPLETED
+  FAILED
+  ARCHIVED
 }
 
 model RawChunk {
@@ -38,12 +73,19 @@ model RawChunk {
   sourceId  String
   index     Int      // Sequential position within the source
   text      String   @db.Text
+
+  // Rich metadata
+  speakerName String?
+  timestamp   DateTime?
+  metaJson    Json?
+
   createdAt DateTime @default(now())
 
-  source    SourceStream @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  source SourceStream @relation(fields: [sourceId], references: [id], onDelete: Cascade)
 
   @@unique([sourceId, index])
   @@index([sourceId, index])
+  @@index([speakerName])
 }
 
 model Episode {
@@ -54,13 +96,234 @@ model Episode {
   summary         String?  @db.Text
   startChunkIndex Int
   endChunkIndex   Int
-  metaJson        Json?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
 
+  // Quality and confidence metrics
+  confidence      Float?   // 0-1 confidence score
+  qualityScore    Float?   // 0-1 quality score
+
+  // Processing metadata
+  segmentationMode String? // heuristic, llm, custom
+  metaJson         Json?
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
   source          SourceStream @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  tags            EpisodeTag[]
+  versions        EpisodeVersion[]
+
+  // Episode references (for linking related episodes)
+  referencedBy    EpisodeReference[] @relation("ReferencedEpisode")
+  references      EpisodeReference[] @relation("ReferencingEpisode")
 
   @@unique([sourceId, episodeIndex])
   @@index([sourceId, episodeIndex])
+  @@index([createdAt])
+  @@index([confidence])
+  @@index([qualityScore])
+}
+
+// ============================================================================
+// SEGMENTATION & PROCESSING
+// ============================================================================
+
+model SegmentationJob {
+  id           String         @id @default(cuid())
+  sourceId     String
+  status       JobStatus      @default(PENDING)
+  mode         String         // heuristic, llm, hybrid
+
+  // Configuration
+  config       Json?
+
+  // Results
+  episodesCreated Int         @default(0)
+  errorMessage    String?     @db.Text
+
+  // Timing
+  startedAt    DateTime?
+  completedAt  DateTime?
+  duration     Int?           // milliseconds
+
+  // Timestamps
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  source       SourceStream   @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([sourceId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// ============================================================================
+// VERSIONING
+// ============================================================================
+
+model EpisodeVersion {
+  id              String   @id @default(cuid())
+  episodeId       String
+  versionNumber   Int
+
+  title           String?
+  summary         String?  @db.Text
+  startChunkIndex Int
+  endChunkIndex   Int
+  confidence      Float?
+
+  // Which segmentation created this version
+  segmentationMode String?
+  config           Json?
+
+  createdAt        DateTime @default(now())
+
+  episode          Episode  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+
+  @@unique([episodeId, versionNumber])
+  @@index([episodeId])
+}
+
+// ============================================================================
+// TAGGING SYSTEM
+// ============================================================================
+
+model TagCategory {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  color       String?  // Hex color for UI
+
+  createdAt   DateTime @default(now())
+
+  tags        Tag[]
+
+  @@index([name])
+}
+
+model Tag {
+  id          String   @id @default(cuid())
+  name        String
+  categoryId  String?
+  description String?
+
+  createdAt   DateTime @default(now())
+
+  category    TagCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  sources     SourceTag[]
+  episodes    EpisodeTag[]
+
+  @@unique([name, categoryId])
+  @@index([name])
+  @@index([categoryId])
+}
+
+model SourceTag {
+  id        String   @id @default(cuid())
+  sourceId  String
+  tagId     String
+  createdAt DateTime @default(now())
+
+  source    SourceStream @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  tag       Tag          @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceId, tagId])
+  @@index([sourceId])
+  @@index([tagId])
+}
+
+model EpisodeTag {
+  id        String   @id @default(cuid())
+  episodeId String
+  tagId     String
+  createdAt DateTime @default(now())
+
+  episode   Episode  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([episodeId, tagId])
+  @@index([episodeId])
+  @@index([tagId])
+}
+
+// ============================================================================
+// EPISODE RELATIONSHIPS
+// ============================================================================
+
+model EpisodeReference {
+  id                  String   @id @default(cuid())
+  referencingEpisodeId String
+  referencedEpisodeId String
+  referenceType       String   // continuation, response_to, related, summary_of
+  notes               String?  @db.Text
+
+  createdAt           DateTime @default(now())
+
+  referencingEpisode  Episode  @relation("ReferencingEpisode", fields: [referencingEpisodeId], references: [id], onDelete: Cascade)
+  referencedEpisode   Episode  @relation("ReferencedEpisode", fields: [referencedEpisodeId], references: [id], onDelete: Cascade)
+
+  @@unique([referencingEpisodeId, referencedEpisodeId, referenceType])
+  @@index([referencingEpisodeId])
+  @@index([referencedEpisodeId])
+  @@index([referenceType])
+}
+
+// ============================================================================
+// ANALYTICS & INSIGHTS
+// ============================================================================
+
+model AnalyticsSnapshot {
+  id          String   @id @default(cuid())
+  snapshotType String  // daily, weekly, monthly, on_demand
+
+  // Metrics
+  metrics     Json
+
+  // Time range
+  startDate   DateTime
+  endDate     DateTime
+
+  createdAt   DateTime @default(now())
+
+  @@index([snapshotType])
+  @@index([startDate])
+  @@index([createdAt])
+}
+
+// ============================================================================
+// AUDIT LOG
+// ============================================================================
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  entityType String   // SourceStream, Episode, Tag, etc.
+  entityId   String
+  action     String   // created, updated, deleted, segmented
+
+  // Who/what triggered this
+  userId     String?
+  source     String?  // api, cli, system, webhook
+
+  // Changes
+  changes    Json?
+
+  // Request metadata
+  ipAddress  String?
+  userAgent  String?
+
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([action])
+  @@index([userId])
   @@index([createdAt])
 }

@@ -17,6 +17,34 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - episode-chunker-network
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: episode-chunker-app
+    environment:
+      DATABASE_URL: postgresql://chunker:chunker_password@postgres:5432/episode_chunker?schema=public
+      PORT: 3000
+      HOST: 0.0.0.0
+      NODE_ENV: production
+      DEFAULT_SEGMENTATION_MODE: heuristic
+      MIN_EPISODE_CHUNKS: 3
+      MAX_EPISODE_CHUNKS: 50
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - episode-chunker-network
+    restart: unless-stopped
 
 volumes:
   postgres_data:
+
+networks:
+  episode-chunker-network:
+    driver: bridge
