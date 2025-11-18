@@ -1,206 +1,233 @@
 import { prisma } from './lib/db';
 import { segmentSource } from './services/segmentation';
+import { logInfo } from './lib/logger';
 
-const DEMO_TRANSCRIPT = [
-  `User: Hi! I'm trying to understand how to set up a PostgreSQL database for my new project.`,
+// ============================================================================
+// DEMO TRANSCRIPTS
+// ============================================================================
 
-  `Assistant: I'd be happy to help you set up PostgreSQL! First, let me ask a few questions to better understand your needs. What operating system are you using, and is this for development or production?`,
-
-  `User: I'm on macOS, and this is just for local development right now. Eventually, I'll deploy to a cloud platform.`,
-
-  `Assistant: Great! For macOS, I recommend using Homebrew to install PostgreSQL. Here's what you need to do:
-
-1. Install PostgreSQL: brew install postgresql@15
-2. Start the service: brew services start postgresql@15
-3. Create your first database: createdb myproject
-
-Would you like me to explain any of these steps in more detail?`,
-
-  `User: That's helpful! I actually already have Postgres installed. My main question is about database design. I'm building a task management app.`,
-
-  `Assistant: Excellent! Let's talk about database design for a task management app. Here are the core tables you'll likely need:
-
-1. Users - to store user accounts
-2. Projects - to group related tasks
-3. Tasks - the main entity with fields like title, description, due_date, priority
-4. Tags - for categorizing tasks
-5. TaskTags - a junction table for many-to-many relationship
-
-Would you like me to show you a sample schema?`,
-
-  `User: Yes, please! Especially the Tasks table with proper foreign keys.`,
-
-  `Assistant: Here's a sample schema for the Tasks table:
-
-CREATE TABLE tasks (
-  id SERIAL PRIMARY KEY,
-  title VARCHAR(255) NOT NULL,
-  description TEXT,
-  due_date TIMESTAMP,
-  priority INTEGER DEFAULT 0,
-  status VARCHAR(50) DEFAULT 'pending',
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-The CASCADE and SET NULL options ensure data integrity when related records are deleted.`,
-
-  `User: Perfect! Now I'm wondering about indexing. What columns should I index?`,
-
-  `Assistant: Great question! Indexes speed up queries but slow down writes, so choose wisely. For a task management app, I recommend indexing:
-
-1. user_id - you'll frequently query tasks by user
-2. project_id - for filtering tasks by project
-3. status - for queries like "show all pending tasks"
-4. due_date - for sorting and filtering by deadline
-5. (user_id, status) - composite index for common queries
-
-You can create these with:
-CREATE INDEX idx_tasks_user_id ON tasks(user_id);
-CREATE INDEX idx_tasks_status ON tasks(status);`,
-
-  `User: Thanks! One more thing - what about handling task assignments? A task might be assigned to multiple people.`,
-
-  `Assistant: For multiple assignees, you'll need a many-to-many relationship. Create a junction table:
-
-CREATE TABLE task_assignments (
-  id SERIAL PRIMARY KEY,
-  task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE(task_id, user_id)
-);
-
-The UNIQUE constraint prevents duplicate assignments. You can also add fields like 'role' or 'is_primary' if needed.`,
-
-  `User: This is incredibly helpful! Let me switch topics - I'm also curious about API design. Should I use REST or GraphQL?`,
-
-  `Assistant: Both are valid choices! Here's a quick comparison for your task management app:
-
-REST Benefits:
-- Simpler to implement and understand
-- Better caching with HTTP
-- Widely supported tooling
-
-GraphQL Benefits:
-- Fetch exactly what you need (no over/under-fetching)
-- Single endpoint
-- Great for complex, nested data
-
-For a task management app, I'd recommend starting with REST since it's simpler. You can always add GraphQL later if needed.`,
-
-  `User: Makes sense. What would a typical REST API structure look like?`,
-
-  `Assistant: Here's a RESTful structure for your task management app:
-
-GET    /api/tasks           - List all tasks (with filtering)
-POST   /api/tasks           - Create a new task
-GET    /api/tasks/:id       - Get a specific task
-PUT    /api/tasks/:id       - Update a task
-DELETE /api/tasks/:id       - Delete a task
-
-GET    /api/projects/:id/tasks  - Get tasks for a project
-GET    /api/users/:id/tasks     - Get tasks for a user
-
-POST   /api/tasks/:id/assign    - Assign users to a task
-
-Use query parameters for filtering: /api/tasks?status=pending&priority=high`,
-
-  `User: Great! And what about authentication? JWT or sessions?`,
-
-  `Assistant: For a modern web app, I'd recommend JWT (JSON Web Tokens) because:
-
-1. Stateless - no server-side session storage needed
-2. Works well with mobile apps and SPAs
-3. Can include user claims/roles in the token
-4. Easy to scale horizontally
-
-Basic flow:
-1. User logs in with credentials
-2. Server validates and returns a JWT
-3. Client includes JWT in Authorization header for subsequent requests
-4. Server validates JWT on each request
-
-Use a library like jsonwebtoken (Node.js) or passport-jwt for implementation.`,
+const TECH_SUPPORT_TRANSCRIPT = [
+  'User: Hi! I\'m trying to understand how to set up a PostgreSQL database for my new project.',
+  'Assistant: I\'d be happy to help you set up PostgreSQL! First, let me ask a few questions to better understand your needs. What operating system are you using, and is this for development or production?',
+  'User: I\'m on macOS, and this is just for local development right now. Eventually, I\'ll deploy to a cloud platform.',
+  'Assistant: Great! For macOS, I recommend using Homebrew to install PostgreSQL.',
+  'User: That\'s helpful! I actually already have Postgres installed. My main question is about database design. I\'m building a task management app.',
+  'Assistant: Excellent! Let\'s talk about database design for a task management app. Here are the core tables you\'ll likely need: Users, Projects, Tasks, Tags, and TaskTags junction table.',
+  'User: Yes, please! Especially the Tasks table with proper foreign keys.',
+  'Assistant: Here\'s a sample schema for the Tasks table with proper foreign key constraints and cascade rules.',
 ];
 
+const SALES_CALL_TRANSCRIPT = [
+  'Sales Rep: Good morning! This is Jennifer from CloudTech Solutions. I\'m calling to follow up on your inquiry about our enterprise data platform.',
+  'Client: Hi Jennifer, yes, I\'m the CTO at MegaCorp. We\'re evaluating solutions for our data warehouse modernization project.',
+  'Sales Rep: Perfect! Can you tell me a bit about your current setup and what challenges you\'re facing?',
+  'Client: We\'re currently running an on-premise Oracle warehouse with about 50TB of data. Main issues are cost, performance, and difficulty integrating with our modern cloud applications.',
+  'Sales Rep: I see. Those are common pain points we help solve. Our platform offers 10x better performance at 60% lower cost. How many users would need access?',
+  'Client: We have about 200 data analysts and engineers who need regular access.',
+  'Sales Rep: Great! For that size, I\'d recommend our Enterprise tier at $50k per month.',
+  'Client: That\'s within our budget range. What about data migration?',
+  'Sales Rep: Excellent question! We provide a dedicated migration team at no extra cost. Typically takes 6-8 weeks for your data size.',
+  'Client: Can you send me a detailed proposal and some customer references?',
+  'Sales Rep: Absolutely! I\'ll send you a customized proposal by end of day. Would next Tuesday work for a follow-up call?',
+  'Client: Yes, Tuesday at 2pm works perfectly.',
+];
+
+// ============================================================================
+// SEED FUNCTION
+// ============================================================================
+
 async function seed() {
-  console.log('Starting seed process...');
+  logInfo('Starting comprehensive seed process...');
 
   try {
     // Clean up existing data
-    console.log('Cleaning up existing data...');
+    logInfo('Cleaning up existing data...');
+    await prisma.analyticsSnapshot.deleteMany({});
+    await prisma.auditLog.deleteMany({});
+    await prisma.episodeReference.deleteMany({});
+    await prisma.episodeTag.deleteMany({});
+    await prisma.sourceTag.deleteMany({});
+    await prisma.tag.deleteMany({});
+    await prisma.tagCategory.deleteMany({});
+    await prisma.episodeVersion.deleteMany({});
     await prisma.episode.deleteMany({});
+    await prisma.segmentationJob.deleteMany({});
     await prisma.rawChunk.deleteMany({});
     await prisma.sourceStream.deleteMany({});
 
-    // Create demo source
-    console.log('Creating demo source...');
-    const source = await prisma.sourceStream.create({
+    // ============================================================================
+    // CREATE TAG SYSTEM
+    // ============================================================================
+    logInfo('Creating tag categories and tags...');
+
+    const topicCategory = await prisma.tagCategory.create({
       data: {
-        name: 'Tech Support Conversation - PostgreSQL & API Design',
+        name: 'Topic',
+        description: 'Content topic or subject matter',
+        color: '#3B82F6',
+      },
+    });
+
+    const techTag = await prisma.tag.create({
+      data: { name: 'Technical', categoryId: topicCategory.id },
+    });
+
+    const salesTag = await prisma.tag.create({
+      data: { name: 'Sales', categoryId: topicCategory.id },
+    });
+
+    const supportTag = await prisma.tag.create({
+      data: { name: 'Support', categoryId: topicCategory.id },
+    });
+
+    // ============================================================================
+    // SCENARIO 1: TECH SUPPORT CONVERSATION
+    // ============================================================================
+    logInfo('Creating Scenario 1: Tech Support Conversation...');
+
+    const techSupportSource = await prisma.sourceStream.create({
+      data: {
+        name: 'Tech Support - PostgreSQL Setup',
         type: 'CHAT',
+        status: 'READY',
+        description: 'Customer seeking help with PostgreSQL database design',
         metaJson: {
           participants: ['User', 'Assistant'],
-          topics: ['PostgreSQL', 'Database Design', 'API Design', 'Authentication'],
+          topics: ['PostgreSQL', 'Database Design'],
         },
       },
     });
 
-    console.log(`Created source: ${source.id}`);
+    await prisma.rawChunk.createMany({
+      data: TECH_SUPPORT_TRANSCRIPT.map((text, index) => ({
+        sourceId: techSupportSource.id,
+        index,
+        text,
+        speakerName: text.split(':')[0],
+      })),
+    });
 
-    // Create chunks from transcript
-    console.log(`Creating ${DEMO_TRANSCRIPT.length} chunks...`);
-    await prisma.$transaction(
-      DEMO_TRANSCRIPT.map((text, index) =>
-        prisma.rawChunk.create({
-          data: {
-            sourceId: source.id,
-            index,
-            text,
+    await prisma.sourceStream.update({
+      where: { id: techSupportSource.id },
+      data: { totalChunks: TECH_SUPPORT_TRANSCRIPT.length },
+    });
+
+    await prisma.sourceTag.createMany({
+      data: [
+        { sourceId: techSupportSource.id, tagId: techTag.id },
+        { sourceId: techSupportSource.id, tagId: supportTag.id },
+      ],
+    });
+
+    // ============================================================================
+    // SCENARIO 2: SALES CALL
+    // ============================================================================
+    logInfo('Creating Scenario 2: Sales Call...');
+
+    const salesCallSource = await prisma.sourceStream.create({
+      data: {
+        name: 'Sales Call - CloudTech Enterprise',
+        type: 'MEETING',
+        status: 'READY',
+        description: 'Enterprise sales call with potential customer',
+        metaJson: {
+          participants: ['Sales Rep', 'Client'],
+          company: 'MegaCorp',
+        },
+      },
+    });
+
+    await prisma.rawChunk.createMany({
+      data: SALES_CALL_TRANSCRIPT.map((text, index) => ({
+        sourceId: salesCallSource.id,
+        index,
+        text,
+        speakerName: text.split(':')[0],
+      })),
+    });
+
+    await prisma.sourceStream.update({
+      where: { id: salesCallSource.id },
+      data: { totalChunks: SALES_CALL_TRANSCRIPT.length },
+    });
+
+    await prisma.sourceTag.create({
+      data: { sourceId: salesCallSource.id, tagId: salesTag.id },
+    });
+
+    // ============================================================================
+    // RUN SEGMENTATION ON ALL SOURCES
+    // ============================================================================
+    logInfo('Running segmentation on all sources...');
+
+    const sources = [techSupportSource, salesCallSource];
+
+    for (const source of sources) {
+      const sourceWithChunks = await prisma.sourceStream.findUnique({
+        where: { id: source.id },
+        include: {
+          chunks: {
+            orderBy: { index: 'asc' },
           },
-        })
-      )
-    );
-
-    // Fetch source with chunks
-    const sourceWithChunks = await prisma.sourceStream.findUnique({
-      where: { id: source.id },
-      include: {
-        chunks: {
-          orderBy: { index: 'asc' },
         },
-      },
-    });
+      });
 
-    if (!sourceWithChunks) {
-      throw new Error('Failed to fetch source with chunks');
+      if (sourceWithChunks) {
+        await segmentSource(sourceWithChunks, {
+          mode: 'heuristic',
+          minChunks: 2,
+          maxChunks: 10,
+        });
+      }
     }
 
-    // Run segmentation
-    console.log('Running heuristic segmentation...');
-    const episodes = await segmentSource(sourceWithChunks, {
-      mode: 'heuristic',
-      minChunks: 2,
-      maxChunks: 10,
+    // ============================================================================
+    // CREATE ANALYTICS SNAPSHOT
+    // ============================================================================
+    logInfo('Creating analytics snapshot...');
+
+    const [totalSources, totalChunks, totalEpisodes, totalJobs] = await Promise.all([
+      prisma.sourceStream.count(),
+      prisma.rawChunk.count(),
+      prisma.episode.count(),
+      prisma.segmentationJob.count(),
+    ]);
+
+    await prisma.analyticsSnapshot.create({
+      data: {
+        snapshotType: 'seed',
+        startDate: new Date(),
+        endDate: new Date(),
+        metrics: {
+          totalSources,
+          totalChunks,
+          totalEpisodes,
+          totalJobs,
+          timestamp: new Date().toISOString(),
+        },
+      },
     });
 
-    console.log(`\nCreated ${episodes.length} episodes:\n`);
-    episodes.forEach(ep => {
-      console.log(`Episode ${ep.episodeIndex}: ${ep.title}`);
-      console.log(`  Chunks: ${ep.startChunkIndex} - ${ep.endChunkIndex} (${ep.endChunkIndex - ep.startChunkIndex + 1} chunks)`);
-      console.log(`  Summary: ${ep.summary?.slice(0, 100)}...`);
-      console.log('');
-    });
+    // ============================================================================
+    // SUMMARY
+    // ============================================================================
+    logInfo('\n' + '='.repeat(80));
+    logInfo('SEED COMPLETED SUCCESSFULLY!');
+    logInfo('='.repeat(80));
+    logInfo(`\nCreated:
+  - ${totalSources} source streams
+  - ${totalChunks} raw chunks
+  - ${totalEpisodes} episodes
+  - ${totalJobs} segmentation jobs
+  - ${await prisma.tag.count()} tags
+`);
 
-    console.log('\nSeed completed successfully!');
-    console.log(`\nSource ID: ${source.id}`);
-    console.log('\nNext steps:');
-    console.log(`1. View episodes: npm run cli list-episodes -- -s ${source.id}`);
-    console.log(`2. Start the server: npm run dev`);
-    console.log(`3. Access API: GET http://localhost:3000/api/sources/${source.id}/episodes`);
+    logInfo('\nNext Steps:');
+    logInfo('  1. Start the server: npm run dev');
+    logInfo('  2. View analytics: GET http://localhost:3000/api/analytics/overview');
+    logInfo('  3. List episodes: GET http://localhost:3000/api/episodes');
+    logInfo('='.repeat(80) + '\n');
+
   } catch (error) {
     console.error('Seed failed:', error);
     throw error;
