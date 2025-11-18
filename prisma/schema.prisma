@@ -1,0 +1,66 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model SourceStream {
+  id        String   @id @default(cuid())
+  name      String
+  type      StreamType
+  metaJson  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  chunks    RawChunk[]
+  episodes  Episode[]
+
+  @@index([type])
+  @@index([createdAt])
+}
+
+enum StreamType {
+  CHAT
+  MEETING
+  LOG
+  TRANSCRIPT
+  OTHER
+}
+
+model RawChunk {
+  id        String   @id @default(cuid())
+  sourceId  String
+  index     Int      // Sequential position within the source
+  text      String   @db.Text
+  createdAt DateTime @default(now())
+
+  source    SourceStream @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceId, index])
+  @@index([sourceId, index])
+}
+
+model Episode {
+  id              String   @id @default(cuid())
+  sourceId        String
+  episodeIndex    Int      // Sequential episode number within the source
+  title           String?
+  summary         String?  @db.Text
+  startChunkIndex Int
+  endChunkIndex   Int
+  metaJson        Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  source          SourceStream @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceId, episodeIndex])
+  @@index([sourceId, episodeIndex])
+  @@index([createdAt])
+}
